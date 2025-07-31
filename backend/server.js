@@ -17,17 +17,17 @@ if(process.env.NODE_ENV !== "production"){
   app.use(cors());
 }
 
-const limit=rateLimit({
-  windowMs: 1*60*1000,
-  max:15,
-  message: "Too many requests. Please wait...",
-  standardHeaders: true,
-  legacyHeaders: false
-});
+// const limit=rateLimit({
+//   windowMs: 1*60*1000,
+//   max:15,
+//   message: "Too many requests. Please wait...",
+//   standardHeaders: true,
+//   legacyHeaders: false
+// });
 
 app.use(express.json());
 
-app.use(limit);
+// app.use(limit);
 app.use('/api/auth', authRoutes);
 app.use('/api/quiz', quizRoutes);
 
