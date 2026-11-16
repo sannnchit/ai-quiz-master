@@ -1,3 +1,6 @@
+/* eslint-disable react-refresh/only-export-components */
+// This file intentionally exports both the provider component and its hook; that is
+// the conventional shape for a React context in a Vite app.
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 

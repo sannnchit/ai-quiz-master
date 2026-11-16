@@ -21,10 +21,11 @@ const userSchema = new mongoose.Schema({
     history: [historySchema]
 }, { timestamps: true });
 
-userSchema.pre('save', async function (next) {
-    if (!this.isModified('password')) {
-        next();
-    }
+userSchema.pre('save', async function () {
+    // `return` is load-bearing: without it every save (e.g. a stats update after a
+    // quiz) re-hashes the already-hashed password and locks the user out.
+    if (!this.isModified('password')) return;
+
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
 });

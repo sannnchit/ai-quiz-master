@@ -1,29 +1,32 @@
 import React, { useState } from 'react';
 import QuizSetup from './QuizSetup';
 import api from '../services/api';
+import getErrorMessage from '../services/getErrorMessage';
 
 const MultiplayerLobby = ({ setAppState, setRoomId }) => {
     const [joinId, setJoinId] = useState('');
     const [error, setError] = useState('');
 
     const handleCreateRoom = async (settings) => {
+        setError('');
         try {
-            const { data } = await api.post('/quiz/room', { settings });
+            const { data } = await api.post('/rooms', { settings });
             setRoomId(data.roomId);
             setAppState('multiplayer-waiting');
         } catch (err) {
-            setError('Could not create room. Please try again.');
+            setError(getErrorMessage(err, 'Could not create room. Please try again.'));
         }
     };
 
     const handleJoin = async () => {
         if (!joinId) return;
+        setError('');
         try {
-            await api.post(`/quiz/room/${joinId}/join`);
+            await api.post(`/rooms/${joinId}/join`);
             setRoomId(joinId);
             setAppState('multiplayer-waiting');
         } catch (err) {
-            setError(err.response?.data?.message || 'Failed to join room.');
+            setError(getErrorMessage(err, 'Failed to join room.'));
         }
     };
 

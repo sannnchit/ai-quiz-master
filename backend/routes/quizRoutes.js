@@ -1,25 +1,23 @@
-
 import express from 'express';
-import {
-    generateSoloQuiz,
-    createRoom,
-    joinRoom,
-    getRoomStatus,
-    startQuiz,
-    submitSolo,
-    submitMultiplayerAnswers
-} from '../controllers/quizController.js';
+import { createQuiz, submitQuizAttempt } from '../controllers/quizController.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { validate } from '../utils/validate.js';
+import {
+  createQuizSchema,
+  quizIdParamSchema,
+  submitAttemptSchema,
+} from '../validators/quizValidator.js';
 
 const router = express.Router();
 
-router.post('/generate-solo', protect, generateSoloQuiz);
-router.post('/submit-solo', protect, submitSolo);
+router.post('/', protect, validate(createQuizSchema), createQuiz);
 
-router.post('/room', protect, createRoom);
-router.post('/room/:roomId/join', protect, joinRoom);
-router.get('/room/:roomId/status', protect, getRoomStatus);
-router.post('/room/:roomId/start', protect, startQuiz);
-router.post('/room/:roomId/submit', protect, submitMultiplayerAnswers);
+router.post(
+  '/:quizId/attempts',
+  protect,
+  validate(quizIdParamSchema, 'params'),
+  validate(submitAttemptSchema),
+  submitQuizAttempt
+);
 
 export default router;

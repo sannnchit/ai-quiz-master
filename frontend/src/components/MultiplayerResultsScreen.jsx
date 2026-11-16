@@ -6,7 +6,7 @@ const MultiplayerResultsScreen = ({ onPlayAgain, roomId }) => {
 
     const fetchRoomStatus = useCallback(async () => {
         try {
-            const { data } = await api.get(`/quiz/room/${roomId}/status`);
+            const { data } = await api.get(`/rooms/${roomId}`);
             setRoom(data);
         } catch (error) {
             console.error("Failed to fetch results:", error);

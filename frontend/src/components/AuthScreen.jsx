@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import getErrorMessage from '../services/getErrorMessage';
 
 const AuthScreen = () => {
     const { login } = useAuth();
@@ -26,8 +27,7 @@ const AuthScreen = () => {
             const { data } = await api.post(endpoint, { username, password });
             login(data);
         } catch (err) {
-            console.log(err);
-            setError(err.response?.data?.message || 'An error occurred. Please try again.');
+            setError(getErrorMessage(err, 'An error occurred. Please try again.'));
         } finally {
             setLoading(false);
         }

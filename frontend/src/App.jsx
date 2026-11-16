@@ -12,57 +12,62 @@ import SoloResultsScreen from './components/SoloResultsScreen';
 import MultiplayerResultsScreen from './components/MultiplayerResultsScreen';
 import Spinner from './components/Spinner';
 import api from './services/api';
+import getErrorMessage from './services/getErrorMessage';
 
 const App = () => {
     const { user, updateUser } = useAuth();
     const [appState, setAppState] = useState('home');
-    const [quizSettings, setQuizSettings] = useState(null);
+    const [quizId, setQuizId] = useState('');
     const [questions, setQuestions] = useState([]);
-    const [userAnswers, setUserAnswers] = useState([]);
+    const [attempt, setAttempt] = useState(null);
     const [roomId, setRoomId] = useState('');
     const [error, setError] = useState('');
 
     const handleSoloQuizStart = async (settings) => {
-        setQuizSettings(settings);
         setAppState('generating');
         setError('');
         try {
-            const { data } = await api.post('/quiz/generate-solo', settings);
-            setQuestions(data);
+            const { data } = await api.post('/quizzes', settings);
+            setQuizId(data.quizId);
+            setQuestions(data.questions);
             setAppState('quiz');
         } catch (err) {
-            console.log(err);
-            setError('Failed to generate quiz. Please try again.');
+            setError(getErrorMessage(err, 'Failed to generate quiz. Please try again.'));
             setAppState('solo-setup');
         }
     };
 
     const handleQuizComplete = async (answers) => {
-        setUserAnswers(answers);
         try {
-            let updatedUser;
+            let data;
+
             if (roomId) {
-                // Multiplayer submission
-                const { data } = await api.post(`/quiz/room/${roomId}/submit`, { answers });
-                updatedUser = data;
+                // Multiplayer: the server already holds the questions and the key.
+                ({ data } = await api.post(`/rooms/${roomId}/submit`, { answers }));
             } else {
-                // Solo submission
-                const { data } = await api.post('/quiz/submit-solo', { answers, questions, settings: quizSettings });
-                updatedUser = data;
+                // Solo: pair each chosen option index with the question it belongs to.
+                ({ data } = await api.post(`/quizzes/${quizId}/attempts`, {
+                    answers: answers.map((optionIndex, index) => ({
+                        questionId: questions[index].id,
+                        optionIndex,
+                    })),
+                }));
+                setAttempt(data.attempt);
             }
-            updateUser(updatedUser);
+
+            updateUser(data.user);
             setAppState(roomId ? 'multiplayer-results' : 'solo-results');
         } catch (err) {
-            setError('Failed to submit results.');
+            setError(getErrorMessage(err, 'Failed to submit results.'));
             setAppState('home');
         }
     };
 
     const handlePlayAgain = () => {
         setAppState('home');
-        setQuizSettings(null);
+        setQuizId('');
         setQuestions([]);
-        setUserAnswers([]);
+        setAttempt(null);
         setRoomId('');
         setError('');
     };
@@ -102,12 +107,10 @@ const App = () => {
                     </div>
                 );
 
-
-
             case 'multiplayer-lobby':
                 return <MultiplayerLobby setAppState={setAppState} setRoomId={setRoomId} />;
             case 'multiplayer-waiting':
-                return <WaitingRoom setAppState={setAppState} roomId={roomId} setQuestions={setQuestions} setQuizSettings={setQuizSettings} />;
+                return <WaitingRoom setAppState={setAppState} roomId={roomId} setQuestions={setQuestions} />;
             case 'multiplayer-results':
                 return <MultiplayerResultsScreen onPlayAgain={handlePlayAgain} roomId={roomId} />;
             case 'generating':
@@ -115,7 +118,7 @@ const App = () => {
             case 'quiz':
                 return <QuizScreen questions={questions} onQuizComplete={handleQuizComplete} />;
             case 'solo-results':
-                return <SoloResultsScreen questions={questions} userAnswers={userAnswers} onPlayAgain={handlePlayAgain} />;
+                return <SoloResultsScreen attempt={attempt} onPlayAgain={handlePlayAgain} />;
             default:
                 return <HomeScreen setAppState={setAppState} />;
         }

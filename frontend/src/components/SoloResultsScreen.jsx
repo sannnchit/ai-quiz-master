@@ -1,11 +1,10 @@
 import React from 'react';
 
-const SoloResultsScreen = ({ questions, userAnswers, onPlayAgain }) => {
-    const score = userAnswers.reduce(
-        (acc, answer, index) => (answer === questions[index].correctAnswer ? acc + 1 : acc),
-        0
-    );
-    const percentage = Math.round((score / questions.length) * 100);
+const SoloResultsScreen = ({ attempt, onPlayAgain }) => {
+    if (!attempt) return null;
+
+    const { score, total, percentage, passed, review } = attempt;
+    const circumference = 2 * Math.PI * 45;
 
     return (
         <div className="min-h-screen w-full bg-gradient-to-br from-[#1f1c2c] via-[#928DAB] to-[#1f1c2c] flex items-center justify-center p-6 relative overflow-hidden">
@@ -31,7 +30,7 @@ const SoloResultsScreen = ({ questions, userAnswers, onPlayAgain }) => {
                         <circle
                             className="text-indigo-500"
                             strokeWidth="8"
-                            strokeDasharray={`${(percentage * 2 * Math.PI * 45) / 100} ${2 * Math.PI * 45}`}
+                            strokeDasharray={`${(percentage * circumference) / 100} ${circumference}`}
                             strokeLinecap="round"
                             stroke="currentColor"
                             fill="transparent"
@@ -48,13 +47,42 @@ const SoloResultsScreen = ({ questions, userAnswers, onPlayAgain }) => {
                     <span className="absolute text-4xl font-bold text-white">{percentage}%</span>
                 </div>
 
-                <p className="text-lg text-purple-300 mb-8">
-                    {score} out of {questions.length} correct
+                <p className="text-lg text-purple-300 mb-2">
+                    {score} out of {total} correct
                 </p>
+                <p className={`text-sm font-semibold mb-6 ${passed ? 'text-green-400' : 'text-orange-300'}`}>
+                    {passed ? 'Passed' : 'Keep practising'}
+                </p>
+
+                <h2 className="text-lg font-semibold text-white mb-3 text-left">Answer review</h2>
+                <div className="space-y-3 max-h-72 overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent pr-1 text-left">
+                    {review.map((item, index) => (
+                        <div
+                            key={index}
+                            className={`p-3 rounded-xl border shadow-sm ${
+                                item.isCorrect
+                                    ? 'bg-green-500/10 border-green-400/30'
+                                    : 'bg-red-500/10 border-red-400/30'
+                            }`}
+                        >
+                            <p className="font-semibold text-white text-sm">
+                                {index + 1}. {item.prompt}
+                            </p>
+                            <p className="text-sm text-green-300 mt-1">
+                                Correct: {item.options[item.correctOptionIndex]}
+                            </p>
+                            {!item.isCorrect && (
+                                <p className="text-sm text-red-300">
+                                    You chose: {item.options[item.chosenOptionIndex] ?? 'No answer'}
+                                </p>
+                            )}
+                        </div>
+                    ))}
+                </div>
 
                 <button
                     onClick={onPlayAgain}
-                    className="w-full bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 text-white font-semibold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                    className="w-full mt-6 bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 text-white font-semibold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
                 >
                     🔁 Exit Quiz
                 </button>

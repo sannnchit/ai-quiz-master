@@ -1,13 +1,13 @@
 {
   "name": "ai-quiz-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "backend/server.js",
   "scripts": {
     "build": "npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend",
     "start": "npm run start --prefix backend"
   },
   "keywords": [],
-  "author": "",
+  "author": "Sanchit Singh",
   "license": "ISC",
-  "description": ""
+  "description": "AI-powered quiz platform with solo and multiplayer modes, built on the MERN stack."
 }

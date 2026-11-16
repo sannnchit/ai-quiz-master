@@ -1,190 +1,120 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
-import Room from '../models/roomModel.js';
+import Quiz from '../models/quizModel.js';
 import User from '../models/userModel.js';
+import { PASS_THRESHOLD } from '../config/constants.js';
+import { AppError } from '../utils/AppError.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import { publicUser } from '../utils/serializeUser.js';
+import { gradeAnswers } from '../utils/scoring.js';
+import { generateQuestions } from '../services/quizGenerator.js';
 
-const generateQuizQuestions = async (settings) => {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const prompt = `Generate a quiz with ${settings.numQuestions} questions on the topic of "${settings.topic}". The difficulty level should be ${settings.difficulty}. For each question, provide 4 multiple-choice options, and specify the correct answer. Ensure the question and options are plain text.`;
-        const responseSchema = {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    question: { type: Type.STRING },
-                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    correctAnswer: { type: Type.STRING }
-                },
-                required: ['question', 'options', 'correctAnswer']
-            }
-        };
+/**
+ * Turns a stored attempt into the response body. `review` is what lets the client
+ * show which answers were wrong — the answer key is revealed only after scoring.
+ */
+const buildAttemptResult = (quiz, attempt) => {
+  const total = attempt.total || quiz.questions.length;
+  const answersByQuestion = new Map(
+    attempt.answers.map((answer) => [String(answer.questionId), answer])
+  );
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: responseSchema,
-                temperature: 0.7
-            },
-        });
+  const review = quiz.questions.map((question) => {
+    const answer = answersByQuestion.get(String(question._id));
+    return {
+      questionId: question._id,
+      prompt: question.prompt,
+      options: question.options,
+      chosenOptionIndex: answer ? answer.optionIndex : null,
+      correctOptionIndex: question.correctOptionIndex,
+      isCorrect: Boolean(answer?.isCorrect),
+    };
+  });
 
-        const text = response.text.trim();
-        const quizData = JSON.parse(text);
-
-        if (!Array.isArray(quizData) || quizData.length === 0 || quizData.some(q => !q.question || !Array.isArray(q.options) || q.options.length !== 4 || !q.correctAnswer)) {
-            throw new Error("AI returned data in an unexpected format.");
-        }
-        return quizData;
-    } catch (error) {
-        console.error("Error generating quiz from API:", error);
-        throw new Error("Failed to generate quiz questions.");
-    }
+  return {
+    id: attempt._id,
+    score: attempt.score,
+    total,
+    percentage: total === 0 ? 0 : Math.round((attempt.score / total) * 100),
+    passed: attempt.score / total >= PASS_THRESHOLD,
+    submittedAt: attempt.submittedAt,
+    review,
+  };
 };
 
-export const generateSoloQuiz = async (req, res) => {
-    try {
-        const questions = await generateQuizQuestions(req.body);
-        res.json(questions);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
+/**
+ * POST /api/quizzes
+ * Generates and persists a quiz, then returns it WITHOUT the answer key.
+ * The response is the only place a client ever sees the questions.
+ */
+export const createQuiz = asyncHandler(async (req, res) => {
+  const { topic, difficulty, numQuestions } = req.validated.body;
 
-export const createRoom = async (req, res) => {
-    const { settings } = req.body;
-    const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    try {
-        const newRoom = await Room.create({
-            roomId,
-            creatorId: req.user._id,
-            settings,
-            players: [{ userId: req.user._id, username: req.user.username }],
-        });
-        console.log(newRoom);
-        res.status(201).json(newRoom);
-    } catch (error) {
-        console.error("Error creating room:", error, "Request user:", req.user);
-        res.status(500).json({ message: 'Could not create room' });
-    }
-};
+  const questions = await generateQuestions({ topic, difficulty, numQuestions });
 
-export const joinRoom = async (req, res) => {
-    try {
-        const room = await Room.findOne({ roomId: req.params.roomId });
-        if (!room) return res.status(404).json({ message: 'Room not found' });
-        if (room.players.find(p => p.userId.equals(req.user._id))) {
-            return res.json(room); // Already in room
-        }
-        room.players.push({ userId: req.user._id, username: req.user.username });
-        await room.save();
-        res.json(room);
-    } catch (error) {
-        res.status(500).json({ message: 'Could not join room' });
-    }
-};
+  const quiz = await Quiz.create({
+    owner: req.user._id,
+    topic,
+    difficulty,
+    requestedQuestions: numQuestions,
+    questions,
+  });
 
-export const getRoomStatus = async (req, res) => {
-    try {
-        const room = await Room.findOne({ roomId: req.params.roomId });
-        if (!room) return res.status(404).json({ message: 'Room not found' });
-        res.json(room);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching room status' });
-    }
-};
+  res.status(201).json(quiz.toPublicJSON());
+});
 
-export const startQuiz = async (req, res) => {
-    try {
-        const room = await Room.findOne({ roomId: req.params.roomId });
-        if (!room) return res.status(404).json({ message: 'Room not found' });
-        if (!room.creatorId.equals(req.user._id)) return res.status(403).json({ message: 'Only the creator can start the quiz' });
-        
-        const questions = await generateQuizQuestions(room.settings);
-        room.questions = questions;
-        room.status = 'active';
-        await room.save();
-        res.json(room);
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to start quiz' });
-    }
-};
+/**
+ * POST /api/quizzes/:quizId/attempts
+ * Scores the submission server-side and records it. Submitting twice returns the
+ * original result instead of incrementing the player's stats again.
+ */
+export const submitQuizAttempt = asyncHandler(async (req, res) => {
+  const { quizId } = req.validated.params;
+  const { answers } = req.validated.body;
 
-export const submitSolo = async (req, res) => {
-    const { answers, questions, settings } = req.body;
-    const score = answers.reduce((acc, answer, index) => (answer === questions[index].correctAnswer ? acc + 1 : acc), 0);
+  const quiz = await Quiz.findById(quizId);
+  if (!quiz) {
+    throw new AppError(404, 'QUIZ_NOT_FOUND', 'Quiz not found');
+  }
+  if (!quiz.owner.equals(req.user._id)) {
+    throw new AppError(403, 'FORBIDDEN', 'This quiz belongs to another user');
+  }
 
-    try {
-        const isWin = score / questions.length >= 0.5;
-        const user = await User.findById(req.user._id);
-        user.stats.played += 1;
-        if (isWin) user.stats.won += 1;
-        user.history.push({
-            type: 'solo',
-            topic: settings.topic,
-            score,
-            total: questions.length
-        });
-        await user.save();
-        res.json(user);
-    } catch (error) {
-        console.error("Error submitting solo answers:", error);
-        res.status(500).json({ message: 'Error submitting solo answers' });
-    }
-};
+  const existingAttempt = quiz.attempts.find((attempt) => attempt.user.equals(req.user._id));
 
-export const submitMultiplayerAnswers = async (req, res) => {
-    const { answers } = req.body;
-    const { roomId } = req.params;
+  if (existingAttempt) {
+    const user = await User.findById(req.user._id);
+    return res.json({
+      attempt: buildAttemptResult(quiz, existingAttempt),
+      replayed: true,
+      user: publicUser(user),
+    });
+  }
 
-    try {
-        const room = await Room.findOne({ roomId });
-        if (!room) return res.status(404).json({ message: 'Room not found' });
-        if (room.status !== 'active') return res.status(400).json({ message: 'Quiz is not active.' });
+  const graded = gradeAnswers(quiz.questions, answers);
 
-        const questions = room.questions;
-        const score = answers.reduce((acc, answer, index) => (answer === questions[index].correctAnswer ? acc + 1 : acc), 0);
+  quiz.attempts.push({
+    user: req.user._id,
+    answers: graded.answers,
+    score: graded.score,
+    total: graded.total,
+  });
+  await quiz.save();
 
-        const playerIndex = room.players.findIndex(p => p.userId.equals(req.user._id));
-        if (playerIndex === -1) return res.status(404).json({ message: 'Player not found in this room' });
+  const passed = graded.score / graded.total >= PASS_THRESHOLD;
 
-        room.players[playerIndex].answers = answers;
-        room.players[playerIndex].score = score;
-        room.players[playerIndex].status = 'finished';
+  const user = await User.findById(req.user._id);
+  user.stats.played += 1;
+  if (passed) user.stats.won += 1;
+  user.history.push({
+    type: 'solo',
+    topic: quiz.topic,
+    score: graded.score,
+    total: graded.total,
+  });
+  await user.save();
 
-        const allFinished = room.players.every(p => p.status === 'finished');
-        
-        if (allFinished) {
-            room.status = 'finished';
-            const leaderboard = room.players.sort((a, b) => b.score - a.score);
-
-            await Promise.all(leaderboard.map(async (player, index) => {
-                const userToUpdate = await User.findById(player.userId);
-                if (userToUpdate) {
-                    const playerRank = index + 1;
-                    const playerWon = player.score > 0 && (player.score / questions.length) >= 0.5;
-                    userToUpdate.stats.played += 1;
-                    if (playerWon) userToUpdate.stats.won += 1;
-                    userToUpdate.history.push({
-                        type: 'multiplayer',
-                        topic: room.settings.topic,
-                        score: player.score,
-                        total: questions.length,
-                        rank: playerRank.toString(),
-                        roomId
-                    });
-                    await userToUpdate.save();
-                }
-            }));
-        }
-
-        await room.save();
-        const updatedUser = await User.findById(req.user._id);
-        res.json(updatedUser);
-
-    } catch (error) {
-        console.error("Error submitting multiplayer answers:", error);
-        res.status(500).json({ message: 'Error submitting answers' });
-    }
-};
+  return res.status(201).json({
+    attempt: buildAttemptResult(quiz, quiz.attempts[quiz.attempts.length - 1]),
+    replayed: false,
+    user: publicUser(user),
+  });
+});

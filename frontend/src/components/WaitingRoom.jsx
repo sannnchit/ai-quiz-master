@@ -2,24 +2,23 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
-const WaitingRoom = ({ setAppState, roomId, setQuestions, setQuizSettings }) => {
+const WaitingRoom = ({ setAppState, roomId, setQuestions }) => {
     const { user } = useAuth();
     const [room, setRoom] = useState(null);
     const [loading, setLoading] = useState(false);
 
     const fetchRoomStatus = useCallback(async () => {
         try {
-            const { data } = await api.get(`/quiz/room/${roomId}/status`);
+            const { data } = await api.get(`/rooms/${roomId}`);
             setRoom(data);
             if (data.status === 'active') {
                 setQuestions(data.questions);
-                setQuizSettings(data.settings);
                 setAppState('quiz');
             }
         } catch (error) {
             console.error("Failed to fetch room status:", error);
         }
-    }, [roomId, setAppState, setQuestions, setQuizSettings]);
+    }, [roomId, setAppState, setQuestions]);
 
     useEffect(() => {
         fetchRoomStatus();
@@ -30,7 +29,7 @@ const WaitingRoom = ({ setAppState, roomId, setQuestions, setQuizSettings }) => 
     const handleStartQuiz = async () => {
         setLoading(true);
         try {
-            await api.post(`/quiz/room/${roomId}/start`);
+            await api.post(`/rooms/${roomId}/start`);
         } catch (error) {
             console.error("Failed to start quiz:", error);
             setLoading(false);
